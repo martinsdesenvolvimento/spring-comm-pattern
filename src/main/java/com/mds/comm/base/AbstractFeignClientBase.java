@@ -11,7 +11,7 @@ import com.mds.comm.model.FeignProperties;
 import com.mds.comm.util.HttpClientUtil;
 import com.mds.comm.wrapper.FeignRequestWrapper;
 import com.mds.error.handler.exception.GeneralException;
-import com.mds.token.sso.config.AuthenticatorSSOConfig;
+import com.mds.token.sso.SsoSessionProvider;
 import feign.InvocationContext;
 import feign.RequestTemplate;
 import java.util.Collection;
@@ -42,8 +42,9 @@ import org.springframework.http.ResponseEntity;
  * public class ExampleInterceptor extends AbstractFeignClientBase {
  *
  *   protected ExampleInterceptor(CryptoHandler cryptoHandler,
- *       {@literal @}Qualifier("my-feign-config") FeignConfigApi feignConfigApi) {
- *     super(cryptoHandler, feignConfigApi);
+ *       {@literal @}Qualifier("my-feign-config") FeignConfigApi feignConfigApi,
+ *       SsoSessionProvider ssoSessionProvider) {
+ *     super(cryptoHandler, feignConfigApi, ssoSessionProvider);
  *   }
  * }
  * </pre>
@@ -56,20 +57,25 @@ public abstract class AbstractFeignClientBase extends FeignRequestWrapper implem
 
   protected final CryptoHandler cryptoHandler;
   protected final FeignConfigApi feignConfigApi;
+  protected final SsoSessionProvider ssoSessionProvider;
   private Map<String, Collection<String>> headers;
 
   // *************************** Builder Method ***************************
 
   /**
-   * Injects the crypto handler and the Feign configuration.
+   * Injects the crypto handler, the Feign configuration and the SSO
+   * session provider.
    *
-   * @param cryptoHandler  the encryption handler
-   * @param feignConfigApi the session configuration supplier
+   * @param cryptoHandler      the encryption handler
+   * @param feignConfigApi     the session configuration supplier
+   * @param ssoSessionProvider the injected SSO session provider
    */
   protected AbstractFeignClientBase(CryptoHandler cryptoHandler,
-                                    @Qualifier(value = "defaultFeignConfig") FeignConfigApi feignConfigApi) {
+                                    @Qualifier(value = "defaultFeignConfig") FeignConfigApi feignConfigApi,
+                                    SsoSessionProvider ssoSessionProvider) {
     this.cryptoHandler = cryptoHandler;
     this.feignConfigApi = feignConfigApi;
+    this.ssoSessionProvider = ssoSessionProvider;
   }
 
   // *************************** Public Method ***************************
@@ -204,7 +210,7 @@ public abstract class AbstractFeignClientBase extends FeignRequestWrapper implem
    */
   void validateTokenCreation(EncryptionTypeRequestEnum encryptType, Map<String, Collection<String>> headers) throws GeneralException {
     if (EncryptionTypeRequestEnum.validateAuthorization(encryptType)) {
-      final var authorization = AuthenticatorSSOConfig.getInstance().getAuthorization();
+      final var authorization = ssoSessionProvider.getAuthorization();
       final Collection<String> authorizationCollection = HttpClientUtil.convertToCollection("Bearer ".concat(authorization));
       log.info("[AbstractFeignClientBase] - (validateTokenCreation): Authorization = {}", authorizationCollection);
       headers.put("Authorization", authorizationCollection);
@@ -221,7 +227,7 @@ public abstract class AbstractFeignClientBase extends FeignRequestWrapper implem
    */
   void validateEncryptedObjectCreation(EncryptionTypeRequestEnum encryptType, Map<String, Collection<String>> headers) throws GeneralException {
     if (EncryptionTypeRequestEnum.validateEncryptedObject(encryptType)) {
-      final String encryptedObject = AuthenticatorSSOConfig.getInstance().getEncryptedObject();
+      final String encryptedObject = ssoSessionProvider.getEncryptedObject();
       log.info("[AbstractFeignClientBase] - (validateEncryptedObjectCreation): EncryptedObject = {} ", encryptedObject);
       headers.put("X-EncryptedObject", HttpClientUtil.convertToCollection(encryptedObject));
     }
@@ -239,7 +245,7 @@ public abstract class AbstractFeignClientBase extends FeignRequestWrapper implem
       AtomicReference<String> currentPath = new AtomicReference<>(getCurrentPathContext());
 
       HttpClientUtil.executableGeneralValidate(getPathParams(), pathFilter -> {
-        final String encodedPathParam = cryptoHandler.encrypt(AuthenticatorSSOConfig.getInstance().getEncryptedObject(), pathFilter.getKey(), Boolean.TRUE);
+        final String encodedPathParam = cryptoHandler.encrypt(ssoSessionProvider.getEncryptedObject(), pathFilter.getKey(), Boolean.TRUE);
         log.info("[AbstractFeignClientBase] - (validatePathParam): Before = {} and After = {}", pathFilter.getKey(), encodedPathParam);
         addPathParam(pathFilter.getKey(), encodedPathParam);
         currentPath.set(currentPath.get().replace(pathFilter.getKey(), encodedPathParam));
@@ -263,7 +269,7 @@ public abstract class AbstractFeignClientBase extends FeignRequestWrapper implem
       HttpClientUtil.executableGeneralValidate(getQueryParams(), queryFilter -> {
         String valuesFilter = queryFilter.getValue().stream().findFirst().orElseThrow();
         if (!getCurrentSession().existsParamInExcludes(queryFilter.getKey())) {
-          valuesFilter = cryptoHandler.encrypt(AuthenticatorSSOConfig.getInstance().getEncryptedObject(), valuesFilter, Boolean.TRUE);
+          valuesFilter = cryptoHandler.encrypt(ssoSessionProvider.getEncryptedObject(), valuesFilter, Boolean.TRUE);
         }
         encryptedQuery.put(queryFilter.getKey(), valuesFilter);
       });

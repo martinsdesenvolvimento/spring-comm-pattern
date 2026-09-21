@@ -89,3 +89,24 @@ com.mds.comm
 ## Author
 
 Martins Desenvolvimento de Sistemas (MDS)
+
+## Migrating to 0.1.6: injected SSO session
+
+`AbstractFeignClientBase` no longer reaches the
+`AuthenticatorSSOConfig` singleton. Its protected constructor now takes a
+`SsoSessionProvider` (from `spring-token-pattern`), which is provided by
+`AuthenticationSSOHandler` as a regular bean:
+
+```java
+protected ExampleInterceptor(CryptoHandler cryptoHandler,
+    @Qualifier("my-feign-config") FeignConfigApi feignConfigApi,
+    SsoSessionProvider ssoSessionProvider) {
+  super(cryptoHandler, feignConfigApi, ssoSessionProvider);
+}
+```
+
+Subclasses must add the third constructor parameter. The behaviour is
+unchanged: authorization and encrypted-object reads still create and
+refresh the session lazily on first access. `PatternRequestException` now
+extends `BaseException`, so interception failures flow through the MDS
+error contract.
